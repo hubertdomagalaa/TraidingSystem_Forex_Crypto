@@ -124,7 +124,16 @@ class TradingService:
         }
         
         if not self._trader:
-            logger.warning("Trader not initialized, returning empty result")
+            logger.warning("Trader not initialized, returning default data")
+            # Provide default MTF analysis for UI
+            result["mtfAnalysis"] = [
+                {"timeframe": "1H", "trend": "neutral", "signal": 0, "aligned": False},
+                {"timeframe": "4H", "trend": "neutral", "signal": 0, "aligned": False},
+                {"timeframe": "1D", "trend": "neutral", "signal": 0, "aligned": False},
+            ]
+            result["decisionPath"] = [
+                {"step": "System Check", "passed": False, "detail": "Trader not initialized - loading models..."}
+            ]
             return result, time.time() - start_time
         
         try:
@@ -136,14 +145,17 @@ class TradingService:
             
             if analysis and analysis.get("trade"):
                 trade = analysis["trade"]
+                # Normalize direction to uppercase (LONG/SHORT/HOLD)
+                direction_raw = trade.get("direction", "HOLD")
+                direction = direction_raw.upper() if isinstance(direction_raw, str) else "HOLD"
                 result["signal"] = {
                     "asset": asset_formatted,
-                    "direction": trade.get("direction", "HOLD"),
+                    "direction": direction,
                     "confidence": trade.get("confidence", 0) * 100,
                     "entry": trade.get("entry", 0),
                     "stopLoss": trade.get("stop_loss", 0),
                     "takeProfit": trade.get("take_profit", 0),
-                    "horizon": trade.get("horizon", "DAY"),
+                    "horizon": trade.get("horizon", "DAY").upper(),
                     "riskReward": trade.get("risk_reward", 0),
                     "positionSize": trade.get("position_size", 0),
                     "timestamp": datetime.now().isoformat(),
@@ -161,11 +173,15 @@ class TradingService:
                 # MTF Analysis
                 if "mtf" in analysis:
                     mtf = analysis["mtf"]
+                    # Normalize trend values: up->bullish, down->bearish, sideways->neutral
+                    trend_map = {"up": "bullish", "down": "bearish", "sideways": "neutral"}
                     for tf in ["1H", "4H", "1D"]:
                         tf_data = mtf.get(tf.lower(), {})
+                        raw_trend = tf_data.get("trend", "neutral")
+                        normalized_trend = trend_map.get(raw_trend, raw_trend)
                         result["mtfAnalysis"].append({
                             "timeframe": tf,
-                            "trend": tf_data.get("trend", "neutral"),
+                            "trend": normalized_trend,
                             "signal": tf_data.get("signal", 0),
                             "aligned": tf_data.get("aligned", False),
                         })

@@ -20,7 +20,7 @@ export interface TradingSignal {
 
 export interface MarketContext {
   vix: number;
-  vixRegime: Regime;
+  vixRegime: string;
   fearGreed: number;
   fearGreedLabel: string;
   session: string;

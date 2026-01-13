@@ -76,3 +76,7 @@ output/
 
 # Backup
 v1_backup/
+
+# Ensure frontend source is NOT ignored
+!dashboard-web/src/
+!dashboard-web/src/**
