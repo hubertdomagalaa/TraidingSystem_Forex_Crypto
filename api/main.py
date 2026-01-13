@@ -140,6 +140,32 @@ async def export_json():
     return export
 
 
+@app.get("/api/signals/history")
+async def get_signals_history(asset: str = None, limit: int = 50):
+    """Get historical signals from database."""
+    try:
+        from core.database import get_signal_repository
+        repo = get_signal_repository()
+        history = repo.get_history(asset=asset, limit=limit)
+        return {"signals": history, "count": len(history)}
+    except Exception as e:
+        logger.error(f"Error fetching signal history: {e}")
+        return {"signals": [], "count": 0, "error": str(e)}
+
+
+@app.get("/api/signals/stats")
+async def get_signals_stats(days: int = 30):
+    """Get signal statistics for the last N days."""
+    try:
+        from core.database import get_signal_repository
+        repo = get_signal_repository()
+        stats = repo.get_stats(days=days)
+        return stats
+    except Exception as e:
+        logger.error(f"Error fetching stats: {e}")
+        return {"error": str(e)}
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000, reload=True)

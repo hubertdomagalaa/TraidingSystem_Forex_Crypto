@@ -21,6 +21,7 @@ from config.trading_sessions import SessionAnalyzer
 from data.collectors import ForexCollector, CryptoCollector, VIXCollector, NewsCollector
 from models.technical import IndicatorEngine, MultiTimeframeAnalyzer
 from models.technical.intraday_indicators import IntradayIndicators
+from models.huggingface.finbert_sentiment import FinBERTSentiment
 from strategies.entry_confirmation import EntryConfirmation
 from risk_management import PositionSizer, StopLossCalculator
 
@@ -53,6 +54,8 @@ class ShortTermTrader:
         self.forex_collector = ForexCollector()
         self.crypto_collector = CryptoCollector()
         self.vix_collector = VIXCollector()
+        self.news_collector = NewsCollector()
+        self.finbert = FinBERTSentiment()
         self.indicator_engine = IndicatorEngine()
         self.intraday_indicators = IntradayIndicators()
         self.mtf_analyzer = MultiTimeframeAnalyzer()
@@ -152,13 +155,29 @@ class ShortTermTrader:
         # 6. Entry confirmation
         logger.info("✅ Checking entry confirmations...")
         
+        # 5.5 Get sentiment from news
+        logger.info("📰 Analyzing news sentiment...")
+        try:
+            news_texts = self.news_collector.get_news_texts_for_analysis('forex', limit=5)
+            if news_texts:
+                sentiment_scores = [self.finbert.analyze(t)['signal'] for t in news_texts]
+                sentiment_score = sum(sentiment_scores) / len(sentiment_scores)
+            else:
+                sentiment_score = 0.0
+            logger.info(f"📊 Sentiment: {sentiment_score:.3f}")
+        except Exception as e:
+            logger.warning(f"Sentiment analysis failed: {e}")
+            sentiment_score = 0.0
+        
+        result['sentiment'] = round(sentiment_score, 3)
+        
         signals_for_confirmation = {
             'trend_1h': trend_1h['direction'],
             'trend_4h': trend_4h['direction'],
             'price': current_price,
             'vwap': intraday.get('vwap', current_price),
             'rsi': current_rsi,
-            'sentiment': 0.3,  # TODO: Get from news
+            'sentiment': sentiment_score,
             'is_good_time': session['can_trade'],
             'adx': intraday['adx']['value'] if intraday.get('adx') else 20,
         }
