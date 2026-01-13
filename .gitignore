@@ -1,0 +1,78 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+venv/
+.venv/
+ENV/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Logs
+logs/
+*.log
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Node.js (dashboard-web)
+node_modules/
+.next/
+out/
+.pnp
+.pnp.js
+
+# Testing
+.coverage
+htmlcov/
+.pytest_cache/
+
+# Models cache
+*.h5
+*.pkl
+*.joblib
+huggingface_cache/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Output and data
+output/
+*.csv
+*.json
+!package.json
+!package-lock.json
+!tsconfig.json
+!next.config.js
+!tailwind.config.ts
+!postcss.config.mjs
+!eslint.config.mjs
+
+# Backup
+v1_backup/
