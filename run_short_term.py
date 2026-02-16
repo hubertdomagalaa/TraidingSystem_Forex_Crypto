@@ -13,8 +13,7 @@ PROJECT_ROOT = Path(__file__).parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from config.short_term_config import (
-    TRADING_MODE, TIMEFRAME_CONFIG, SHORT_TERM_INDICATORS,
-    SHORT_TERM_RISK, SHORT_TERM_WEIGHTS, get_active_config
+    TRADING_MODE, SHORT_TERM_INDICATORS, SHORT_TERM_RISK, get_active_config
 )
 from config.trading_sessions import SessionAnalyzer
 from data.collectors import ForexCollector, CryptoCollector, VIXCollector, NewsCollector
@@ -97,17 +96,6 @@ class ShortTermTrader:
             return asset
         return f"{asset.upper()}/USDT"
 
-    @staticmethod
-    def _trend_to_signal(trend: dict) -> float:
-        """Convert trend structure to signed signal value."""
-        direction = trend.get("direction", "sideways")
-        strength = float(trend.get("strength", 0.0))
-        if direction == "up":
-            return round(strength, 4)
-        if direction == "down":
-            return round(-strength, 4)
-        return 0.0
-    
     def analyze_forex(self, pair: str = "EUR/PLN") -> dict:
         """
         Pełna analiza dla pary Forex.
@@ -423,7 +411,6 @@ class ShortTermTrader:
             
             for asset, data in results.get(market, {}).items():
                 action = data.get('action', 'N/A')
-                price = data.get('current_price', 'N/A')
                 
                 emoji = "🟢" if "LONG" in action else "🔴" if "SHORT" in action else "⚪"
                 
@@ -448,12 +435,12 @@ if __name__ == "__main__":
     print("\n🔍 Single Pair Analysis: EUR/PLN")
     result = trader.analyze_forex("EUR/PLN")
     
-    print(f"\n📊 Result:")
+    print("\n📊 Result:")
     print(f"   Action: {result.get('action')}")
     print(f"   Reason: {result.get('reason')}")
     
     if result.get('trade'):
-        print(f"\n   💰 Trade Details:")
+        print("\n   💰 Trade Details:")
         print(f"   Direction: {result['trade']['direction']}")
         print(f"   Entry: {result['trade']['entry']:.5f}")
         print(f"   SL: {result['trade']['stop_loss']:.5f}")

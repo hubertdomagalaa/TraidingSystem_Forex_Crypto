@@ -1,8 +1,7 @@
 """
 Stop Loss Calculator - różne metody obliczania stop loss.
 """
-import pandas as pd
-from typing import Dict, Optional, Tuple
+from typing import Dict
 import logging
 
 logger = logging.getLogger(__name__)
@@ -416,7 +415,7 @@ if __name__ == "__main__":
     
     # Fixed
     fixed = calc.fixed_percentage(entry, 'long', sl_pct=0.02)
-    print(f"\n1. Fixed 2%:")
+    print("\n1. Fixed 2%:")
     print(f"   Entry: {fixed['entry_price']}")
     print(f"   SL: {fixed['stop_loss']} (-{fixed['sl_pct']:.2%})")
     print(f"   TP: {fixed['take_profit']} (+{fixed['tp_pct']:.2%})")

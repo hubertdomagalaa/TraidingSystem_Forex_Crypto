@@ -6,3 +6,4 @@ export { MtfTable } from './MtfTable';
 export { RiskPanel } from './RiskPanel';
 export { Header } from './Header';
 export { DecisionPath } from './DecisionPath';
+export { PriceChart } from './PriceChart';

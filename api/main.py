@@ -14,15 +14,10 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 from api.schemas import (
-    AnalysisResponse, 
-    MarketContext, 
+    MarketContext,
     AllSignalsResponse,
     RiskMetrics,
     RefreshResponse,
-    TradingSignal,
-    EntryCondition,
-    MTFAnalysis,
-    DecisionStep,
 )
 from api.services import get_trading_service
 
@@ -168,4 +163,4 @@ async def get_signals_stats(days: int = 30):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run(app, host="0.0.0.0", port=8000, reload=True)  # nosec B104

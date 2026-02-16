@@ -10,6 +10,7 @@ import {
   MtfTable,
   RiskPanel,
   DecisionPath,
+  PriceChart,
 } from '@/components';
 import { useDashboard } from '@/lib/useDashboard';
 
@@ -150,24 +151,13 @@ export default function Dashboard() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <MtfTable analysis={analysis?.mtfAnalysis || []} />
             
-            {/* Chart Placeholder */}
-            <div className="glass-card-static p-4">
-              <h3 className="text-sm font-medium text-[var(--text-secondary)] mb-4">Price Chart</h3>
-              <div className="h-40 flex items-center justify-center border border-dashed border-[var(--border-glass)] rounded-lg">
-                <div className="text-center text-[var(--text-muted)]">
-                  <span className="text-3xl mb-2 block">📈</span>
-                  <span className="text-sm">Chart integration pending</span>
-                </div>
-              </div>
-              
-              {signal.entry > 0 && (
-                <div className="mt-4 flex justify-between text-xs font-mono">
-                  <span className="text-[var(--accent-red)]">SL: {signal.stopLoss.toFixed(4)}</span>
-                  <span className="text-white">Entry: {signal.entry.toFixed(4)}</span>
-                  <span className="text-[var(--accent-green)]">TP: {signal.takeProfit.toFixed(4)}</span>
-                </div>
-              )}
-            </div>
+            {/* Price Chart */}
+            <PriceChart
+              entry={signal.entry}
+              stopLoss={signal.stopLoss}
+              takeProfit={signal.takeProfit}
+              direction={signal.direction}
+            />
           </div>
           
           {/* Decision Path */}

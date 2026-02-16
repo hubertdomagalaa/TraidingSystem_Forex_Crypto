@@ -1,0 +1,30 @@
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+exclude = ["v1_backup", "__pycache__", "dashboard-web"]
+
+[tool.ruff.lint]
+select = ["E", "F", "B", "UP", "I"]
+
+[tool.ruff.lint.per-file-ignores]
+"api/main.py" = ["E402"]
+"api/services.py" = ["E402"]
+"run_short_term.py" = ["E402"]
+
+[tool.mypy]
+python_version = "3.11"
+ignore_missing_imports = true
+follow_imports = "skip"
+files = [
+  "api/schemas.py",
+  "tests/test_api_service_contract.py",
+  "tests/test_drawdown_monitor.py",
+  "tests/test_api_routes.py",
+]
+
+[tool.coverage.run]
+source = ["api", "risk_management"]
+
+[tool.coverage.report]
+fail_under = 30
+show_missing = true

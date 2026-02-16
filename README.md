@@ -356,6 +356,11 @@ pytest tests/test_entry_confirmation.py -v
 
 - [System Documentation](docs/SYSTEM_DOCUMENTATION_FOR_LLM_REVIEW.md) — Detailed technical documentation (700+ lines)
 - [Contributing Guide](CONTRIBUTING.md) — How to contribute to this project
+- [Architecture Overview](docs/ARCHITECTURE.md) — System layers and canonical API contract
+- [Runbook](docs/RUNBOOK.md) — Operational troubleshooting and recovery playbooks
+- [Quality Gates](docs/QUALITY_GATES.md) — Mandatory backend/frontend CI checks
+- [ADR 0001](docs/ADR/0001-canonical-api-contract.md) — Decision on canonical API contract
+- [Sexy Repo Review Blueprint](docs/SEXY_REPO_REVIEW.md) — How to present the repo for a strong first impression
 
 ---
 

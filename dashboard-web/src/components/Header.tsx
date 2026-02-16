@@ -1,6 +1,6 @@
 'use client';
 
-import { MarketContext, TradingStatus } from '@/types/trading';
+import { TradingStatus } from '@/types/trading';
 
 interface HeaderProps {
   session: string;
@@ -31,6 +31,8 @@ export function Header({ session, status }: HeaderProps) {
             Caution
           </span>
         );
+      default:
+        return null;
     }
   };
 
@@ -42,25 +44,23 @@ export function Header({ session, status }: HeaderProps) {
   return (
     <header className="glass-card-static px-6 py-4 mb-6">
       <div className="flex items-center justify-between">
-        {/* Logo */}
         <div className="flex items-center gap-3">
-          <span className="text-2xl">📊</span>
+          <span className="text-sm font-semibold tracking-widest text-[var(--accent-blue)]">TS</span>
           <div>
             <h1 className="text-xl font-bold text-white">Trading System</h1>
             <span className="text-xs text-[var(--text-muted)]">Decision Support</span>
           </div>
         </div>
-        
-        {/* Session Info */}
+
         <div className="flex items-center gap-4">
           <div className="badge badge-info">
             <span className="text-sm">Session: {session}</span>
           </div>
-          
+
           <div className="text-[var(--text-secondary)]">
-            <span className="text-lg font-mono">⏰ {currentTime}</span>
+            <span className="text-lg font-mono">Time {currentTime}</span>
           </div>
-          
+
           {getStatusBadge()}
         </div>
       </div>
