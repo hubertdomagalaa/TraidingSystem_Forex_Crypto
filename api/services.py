@@ -29,6 +29,129 @@ class TradingService:
         self._vix_collector = None
         self._fear_greed = None
         self._initialized = False
+
+    @staticmethod
+    def _normalize_trend(direction: str) -> str:
+        trend_map = {"up": "bullish", "down": "bearish", "sideways": "neutral"}
+        return trend_map.get((direction or "").lower(), "neutral")
+
+    @staticmethod
+    def _trend_signal(direction: str, strength: float) -> float:
+        strength = float(strength or 0)
+        if direction == "up":
+            return round(strength, 4)
+        if direction == "down":
+            return round(-strength, 4)
+        return 0.0
+
+    def _build_entry_conditions(self, analysis: Dict[str, Any]) -> list:
+        """Build UI-friendly entry conditions from current analysis payload."""
+        conditions = []
+        confirmation = analysis.get("confirmation", {})
+
+        # v2 format from EntryConfirmation wrapper
+        for name in confirmation.get("required_met", []):
+            conditions.append({
+                "name": name.replace("_", " ").title(),
+                "met": True,
+                "required": True,
+            })
+        for name in confirmation.get("required_failed", []):
+            conditions.append({
+                "name": name.replace("_", " ").title(),
+                "met": False,
+                "required": True,
+            })
+        for name in confirmation.get("optional_met", []):
+            conditions.append({
+                "name": name.replace("_", " ").title(),
+                "met": True,
+                "required": False,
+            })
+        for name in confirmation.get("optional_missed", []):
+            conditions.append({
+                "name": name.replace("_", " ").title(),
+                "met": False,
+                "required": False,
+            })
+
+        # Backward compatibility with older "confirmations" dict
+        legacy_confirmations = analysis.get("confirmations")
+        if isinstance(legacy_confirmations, dict):
+            for name, met in legacy_confirmations.items():
+                conditions.append({
+                    "name": str(name).replace("_", " ").title(),
+                    "met": bool(met),
+                    "required": name in ["trend", "rsi", "sentiment"],
+                })
+
+        return conditions
+
+    def _build_mtf_analysis(self, analysis: Dict[str, Any]) -> list:
+        """Build normalized MTF structure for frontend."""
+        mtf_items = []
+
+        if isinstance(analysis.get("mtf"), dict):
+            raw = analysis["mtf"]
+            for tf in ["1H", "4H", "1D"]:
+                tf_data = raw.get(tf.lower(), {})
+                trend_raw = tf_data.get("trend", "neutral")
+                trend = self._normalize_trend(trend_raw)
+                signal = tf_data.get("signal", 0)
+                mtf_items.append({
+                    "timeframe": tf,
+                    "trend": trend,
+                    "signal": signal,
+                    "aligned": tf_data.get("aligned", False),
+                })
+            return mtf_items
+
+        if isinstance(analysis.get("trends"), dict):
+            raw = analysis["trends"]
+            base_dir = raw.get("1h", {}).get("direction")
+            for tf in ["1h", "4h", "1d"]:
+                tf_data = raw.get(tf, {})
+                direction = tf_data.get("direction", "sideways")
+                strength = tf_data.get("strength", 0.0)
+                mtf_items.append({
+                    "timeframe": tf.upper(),
+                    "trend": self._normalize_trend(direction),
+                    "signal": self._trend_signal(direction, strength),
+                    "aligned": direction == base_dir if base_dir else False,
+                })
+        return mtf_items
+
+    def _build_decision_path(self, analysis: Dict[str, Any]) -> list:
+        """Build a structured decision path from analysis output."""
+        path = analysis.get("decision_path")
+        if isinstance(path, list) and path:
+            if all(isinstance(item, dict) for item in path):
+                return path
+            # Convert plain text path to structured objects
+            return [
+                {"step": f"Step {idx + 1}", "passed": "BLOCKED" not in str(item).upper(), "detail": str(item)}
+                for idx, item in enumerate(path)
+            ]
+
+        generated = []
+        if isinstance(analysis.get("session"), dict):
+            generated.append({
+                "step": "Session Check",
+                "passed": bool(analysis["session"].get("can_trade", False)),
+                "detail": analysis["session"].get("recommendation", ""),
+            })
+        if isinstance(analysis.get("vix"), dict):
+            generated.append({
+                "step": "Volatility Check",
+                "passed": bool(analysis["vix"].get("can_trade", True)),
+                "detail": f"VIX={analysis['vix'].get('value', 'n/a')} ({analysis['vix'].get('regime', 'unknown')})",
+            })
+        generated.append({
+            "step": "Signal Decision",
+            "passed": analysis.get("action") in ["LONG", "SHORT"],
+            "detail": analysis.get("reason", "No reason provided"),
+        })
+        return generated
     
     def _ensure_initialized(self):
         """Lazy initialization of trading system components."""
@@ -86,9 +209,20 @@ class TradingService:
             analyzer = SessionAnalyzer()
             session_info = analyzer.get_current_session()
             if session_info:
-                result["session"] = session_info.get("name", "CLOSED")
-                result["sessionQuality"] = session_info.get("quality", 0)
-                result["tradingStatus"] = "OK" if session_info.get("can_trade", False) else "BLOCKED"
+                active = session_info.get("active_sessions", [])
+                result["session"] = active[0]["id"].upper() if active else "CLOSED"
+
+                day_rating = session_info.get("day_rating", "neutral")
+                quality_map = {"best": 100, "good": 75, "neutral": 50, "avoid": 20}
+                result["sessionQuality"] = quality_map.get(day_rating, 0)
+
+                can_trade = bool(session_info.get("can_trade", False))
+                if can_trade and day_rating in ["best", "good"]:
+                    result["tradingStatus"] = "OK"
+                elif can_trade:
+                    result["tradingStatus"] = "CAUTION"
+                else:
+                    result["tradingStatus"] = "BLOCKED"
         except Exception as e:
             logger.warning(f"Session analyzer error: {e}")
         
@@ -140,18 +274,22 @@ class TradingService:
             if market.lower() == "forex":
                 analysis = self._trader.analyze_forex(asset_formatted)
             else:
-                symbol = asset_formatted.split("/")[0]  # BTC/USDT -> BTC
-                analysis = self._trader.analyze_crypto(symbol)
+                analysis = self._trader.analyze_crypto(asset_formatted)
             
             if analysis and analysis.get("trade"):
                 trade = analysis["trade"]
                 # Normalize direction to uppercase (LONG/SHORT/HOLD)
                 direction_raw = trade.get("direction", "HOLD")
                 direction = direction_raw.upper() if isinstance(direction_raw, str) else "HOLD"
+                confidence = (
+                    trade.get("confidence")
+                    if trade.get("confidence") is not None
+                    else analysis.get("confirmation", {}).get("confidence", 0)
+                )
                 result["signal"] = {
                     "asset": asset_formatted,
                     "direction": direction,
-                    "confidence": trade.get("confidence", 0) * 100,
+                    "confidence": round(float(confidence) * 100, 2),
                     "entry": trade.get("entry", 0),
                     "stopLoss": trade.get("stop_loss", 0),
                     "takeProfit": trade.get("take_profit", 0),
@@ -160,35 +298,20 @@ class TradingService:
                     "positionSize": trade.get("position_size", 0),
                     "timestamp": datetime.now().isoformat(),
                 }
-                
-                # Entry conditions
-                if "confirmations" in analysis:
-                    for name, met in analysis["confirmations"].items():
-                        result["entryConditions"].append({
-                            "name": name.replace("_", " ").title(),
-                            "met": met,
-                            "required": name in ["trend", "rsi", "sentiment"],
-                        })
-                
-                # MTF Analysis
-                if "mtf" in analysis:
-                    mtf = analysis["mtf"]
-                    # Normalize trend values: up->bullish, down->bearish, sideways->neutral
-                    trend_map = {"up": "bullish", "down": "bearish", "sideways": "neutral"}
-                    for tf in ["1H", "4H", "1D"]:
-                        tf_data = mtf.get(tf.lower(), {})
-                        raw_trend = tf_data.get("trend", "neutral")
-                        normalized_trend = trend_map.get(raw_trend, raw_trend)
-                        result["mtfAnalysis"].append({
-                            "timeframe": tf,
-                            "trend": normalized_trend,
-                            "signal": tf_data.get("signal", 0),
-                            "aligned": tf_data.get("aligned", False),
-                        })
-                
-                # Decision path
-                if "decision_path" in analysis:
-                    result["decisionPath"] = analysis["decision_path"]
+
+            # Build these sections regardless of whether a trade exists
+            result["entryConditions"] = self._build_entry_conditions(analysis)
+            result["mtfAnalysis"] = self._build_mtf_analysis(analysis)
+            result["decisionPath"] = self._build_decision_path(analysis)
+
+            # If no trade but explicit direction action exists, expose it to UI
+            action = str(analysis.get("action", "")).upper()
+            if not analysis.get("trade") and action in ["LONG", "SHORT", "HOLD", "STOP", "WAIT"]:
+                result["signal"]["direction"] = "HOLD" if action in ["WAIT", "STOP"] else action
+                result["signal"]["confidence"] = round(
+                    float(analysis.get("confirmation", {}).get("confidence", 0)) * 100, 2
+                )
+                result["signal"]["entry"] = analysis.get("current_price", 0) or 0
                     
         except Exception as e:
             logger.error(f"Analysis error: {e}")

@@ -6,7 +6,6 @@ import sys
 from pathlib import Path
 from datetime import datetime
 import logging
-import json
 import pandas as pd
 
 # Setup path
@@ -67,6 +66,47 @@ class ShortTermTrader:
         self.config = get_active_config()
         
         logger.info(f"🚀 ShortTermTrader initialized in {TRADING_MODE.value} mode")
+
+    @staticmethod
+    def _resample_to_4h(df: pd.DataFrame) -> pd.DataFrame:
+        """Resample hourly OHLCV data to 4H candles."""
+        if df is None or df.empty:
+            return pd.DataFrame()
+
+        frame = df.copy()
+        frame.columns = frame.columns.str.lower()
+
+        if not isinstance(frame.index, pd.DatetimeIndex):
+            frame.index = pd.to_datetime(frame.index)
+
+        agg = {
+            "open": "first",
+            "high": "max",
+            "low": "min",
+            "close": "last",
+        }
+        if "volume" in frame.columns:
+            agg["volume"] = "sum"
+
+        return frame.resample("4h").agg(agg).dropna(subset=["open", "high", "low", "close"])
+
+    @staticmethod
+    def _normalize_crypto_pair(asset: str) -> str:
+        """Normalize input to CCXT pair format, e.g. BTC -> BTC/USDT."""
+        if "/" in asset:
+            return asset
+        return f"{asset.upper()}/USDT"
+
+    @staticmethod
+    def _trend_to_signal(trend: dict) -> float:
+        """Convert trend structure to signed signal value."""
+        direction = trend.get("direction", "sideways")
+        strength = float(trend.get("strength", 0.0))
+        if direction == "up":
+            return round(strength, 4)
+        if direction == "down":
+            return round(-strength, 4)
+        return 0.0
     
     def analyze_forex(self, pair: str = "EUR/PLN") -> dict:
         """
@@ -88,7 +128,7 @@ class ShortTermTrader:
         logger.info(f"⏰ Session: {session['recommendation']}")
         
         if not session['can_trade']:
-            result['action'] = 'WAIT'
+            result['action'] = 'HOLD'
             result['reason'] = session['recommendation']
             return result
         
@@ -106,13 +146,17 @@ class ShortTermTrader:
         logger.info("📥 Fetching price data...")
         
         data_1h = self.forex_collector.get_historical_data(pair, days=5, interval="1h")
-        data_4h = self.forex_collector.get_historical_data(pair, days=30, interval="1d")
+        data_1h_extended = self.forex_collector.get_historical_data(pair, days=30, interval="1h")
+        data_4h = self._resample_to_4h(data_1h_extended)
         data_1d = self.forex_collector.get_historical_data(pair, days=90, interval="1d")
         
         if data_1h is None or data_1h.empty:
             result['action'] = 'ERROR'
             result['reason'] = 'Could not fetch price data'
             return result
+        if data_4h is None or data_4h.empty:
+            logger.warning("4H data unavailable, falling back to daily for higher timeframe proxy")
+            data_4h = data_1d
         
         current_price = float(data_1h['Close'].iloc[-1])
         result['current_price'] = current_price
@@ -176,9 +220,11 @@ class ShortTermTrader:
             'trend_4h': trend_4h['direction'],
             'price': current_price,
             'vwap': intraday.get('vwap', current_price),
+            'pivots': intraday.get('pivots'),
             'rsi': current_rsi,
             'sentiment': sentiment_score,
             'is_good_time': session['can_trade'],
+            'vix': vix['value'],
             'adx': intraday['adx']['value'] if intraday.get('adx') else 20,
         }
         
@@ -214,18 +260,21 @@ class ShortTermTrader:
                 'stop_loss': sl_tp['stop_loss'],
                 'take_profit': sl_tp['take_profit'],
                 'risk_reward': sl_tp['risk_reward'],
+                'confidence': confirmation.get('confidence', 0.0),
+                'horizon': 'DAY',
+                'position_size': 0.0,
             }
             
             result['action'] = f"{direction.upper()}"
             result['reason'] = f"Entry confirmed with {confirmation['achieved']}/{confirmation['required']} signals"
             
         else:
-            result['action'] = 'WAIT'
+            result['action'] = 'HOLD'
             result['reason'] = f"Need {confirmation['required'] - confirmation['achieved']} more confirmations"
         
         return result
     
-    def analyze_crypto(self, symbol: str = "BTC") -> dict:
+    def analyze_crypto(self, symbol: str = "BTC/USDT") -> dict:
         """
         Pełna analiza dla crypto.
         """
@@ -233,8 +282,12 @@ class ShortTermTrader:
         logger.info(f"🪙 Analyzing {symbol} for SHORT-TERM trading")
         logger.info(f"{'='*60}")
         
+        pair = self._normalize_crypto_pair(symbol)
+        base_symbol = pair.split('/')[0]
+
         result = {
-            'symbol': symbol,
+            'symbol': base_symbol,
+            'pair': pair,
             'market': 'crypto',
             'timestamp': datetime.now().isoformat(),
         }
@@ -246,17 +299,19 @@ class ShortTermTrader:
         
         # 2. Get price
         try:
-            current_price = self.crypto_collector.get_current_price(symbol)
+            current_price = self.crypto_collector.get_current_price(pair)
+            if current_price is None:
+                raise ValueError(f"Missing current price for {pair}")
             result['current_price'] = current_price
-            logger.info(f"💰 {symbol} price: ${current_price:,.2f}")
+            logger.info(f"💰 {pair} price: ${current_price:,.2f}")
         except Exception as e:
-            logger.error(f"Error fetching {symbol}: {e}")
+            logger.error(f"Error fetching {pair}: {e}")
             result['action'] = 'ERROR'
             result['reason'] = str(e)
             return result
         
         # 3. Get historical data
-        data = self.crypto_collector.get_historical_data(symbol, timeframe="1h", days=5)
+        data = self.crypto_collector.get_historical_data(pair, timeframe="1h", days=5)
         
         if data is None or data.empty:
             result['action'] = 'ERROR'
@@ -275,15 +330,56 @@ class ShortTermTrader:
         trend = self.mtf_analyzer.analyze_trend(data)
         result['trend'] = trend
         
-        # 6. Simple recommendation
+        # 6. Simple recommendation + ATR-based levels for directional bias
+        tr = pd.concat([
+            data['high'] - data['low'],
+            abs(data['high'] - data['close'].shift()),
+            abs(data['low'] - data['close'].shift())
+        ], axis=1).max(axis=1)
+        atr = float(tr.rolling(10).mean().iloc[-1]) if len(tr) >= 10 else float(tr.mean())
+
         if trend['direction'] == 'up' and trend['strength'] > 0.5:
-            result['action'] = 'LONG_BIAS'
+            result['action'] = 'LONG'
             result['reason'] = f"Strong uptrend ({trend['strength']:.0%})"
+            sl_tp = self.sl_calculator.atr_based(
+                entry_price=current_price,
+                atr=atr,
+                direction='long',
+                sl_multiplier=SHORT_TERM_RISK['crypto']['atr_sl_multiplier'],
+                tp_multiplier=SHORT_TERM_RISK['crypto']['atr_tp_multiplier'],
+            )
+            result['trade'] = {
+                'direction': 'long',
+                'entry': current_price,
+                'stop_loss': sl_tp['stop_loss'],
+                'take_profit': sl_tp['take_profit'],
+                'risk_reward': sl_tp['risk_reward'],
+                'confidence': float(trend.get('strength', 0.0)),
+                'horizon': 'DAY',
+                'position_size': 0.0,
+            }
         elif trend['direction'] == 'down' and trend['strength'] > 0.5:
-            result['action'] = 'SHORT_BIAS'
+            result['action'] = 'SHORT'
             result['reason'] = f"Strong downtrend ({trend['strength']:.0%})"
+            sl_tp = self.sl_calculator.atr_based(
+                entry_price=current_price,
+                atr=atr,
+                direction='short',
+                sl_multiplier=SHORT_TERM_RISK['crypto']['atr_sl_multiplier'],
+                tp_multiplier=SHORT_TERM_RISK['crypto']['atr_tp_multiplier'],
+            )
+            result['trade'] = {
+                'direction': 'short',
+                'entry': current_price,
+                'stop_loss': sl_tp['stop_loss'],
+                'take_profit': sl_tp['take_profit'],
+                'risk_reward': sl_tp['risk_reward'],
+                'confidence': float(trend.get('strength', 0.0)),
+                'horizon': 'DAY',
+                'position_size': 0.0,
+            }
         else:
-            result['action'] = 'NEUTRAL'
+            result['action'] = 'HOLD'
             result['reason'] = 'No clear trend'
         
         return result
@@ -307,7 +403,7 @@ class ShortTermTrader:
                 logger.error(f"Error analyzing {pair}: {e}")
         
         # Crypto
-        for symbol in ["BTC", "ETH"]:
+        for symbol in ["BTC/USDT", "ETH/USDT"]:
             try:
                 results['crypto'][symbol] = self.analyze_crypto(symbol)
             except Exception as e:

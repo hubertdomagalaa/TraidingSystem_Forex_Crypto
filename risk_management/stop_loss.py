@@ -58,6 +58,7 @@ class StopLossCalculator:
             take_profit = entry_price * (1 - tp_pct)
         
         return {
+            'entry': entry_price,
             'entry_price': entry_price,
             'direction': direction,
             'stop_loss': round(stop_loss, 5),
@@ -107,6 +108,7 @@ class StopLossCalculator:
         tp_pct = tp_distance / entry_price
         
         return {
+            'entry': entry_price,
             'entry_price': entry_price,
             'direction': direction,
             'stop_loss': round(stop_loss, 5),

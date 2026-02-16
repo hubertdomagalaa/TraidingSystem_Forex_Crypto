@@ -11,7 +11,7 @@ services:
     volumes:
       - ./trading_signals.db:/app/trading_signals.db
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/', timeout=3)"]
       interval: 30s
       timeout: 10s
       retries: 3

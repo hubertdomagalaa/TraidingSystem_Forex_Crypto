@@ -1,9 +1,9 @@
 """
 Drawdown Monitor - monitoruje drawdown i blokuje trading gdy przekroczony.
 """
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from typing import Dict, List, Optional
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 import logging
 
 logger = logging.getLogger(__name__)
@@ -111,7 +111,7 @@ class DrawdownMonitor:
         self._check_new_day()
         
         # Sprawdź limity
-        status = self._check_limits()
+        self._check_limits()
         
         logger.info(
             f"Trade recorded: PnL={pnl:+.2f}, "
@@ -119,7 +119,7 @@ class DrawdownMonitor:
             f"Consecutive={self.consecutive_losses}L/{self.consecutive_wins}W"
         )
         
-        return status
+        return self.get_status()
     
     def can_trade(self) -> bool:
         """
@@ -130,25 +130,22 @@ class DrawdownMonitor:
         """
         # Reset dzienny check
         self._check_new_day()
-        
-        # Sprawdź cooldown
-        if self.block_until and datetime.now() < self.block_until:
-            return False
-        elif self.block_until and datetime.now() >= self.block_until:
-            self._clear_block()
-        
-        # Sprawdź limity
-        status = self._check_limits()
-        
+        self._refresh_block_state()
+        self._check_limits()
         return not self.trading_blocked
     
     def get_status(self) -> Dict:
         """Zwraca aktualny status."""
+        self._check_new_day()
+        self._refresh_block_state()
+        self._check_limits()
+
         daily_dd = self._calc_daily_drawdown()
         total_dd = self._calc_total_drawdown()
+        can_trade_now = not self.trading_blocked
         
         return {
-            'can_trade': self.can_trade(),
+            'can_trade': can_trade_now,
             'blocked': self.trading_blocked,
             'block_reason': self.block_reason,
             'block_until': self.block_until.isoformat() if self.block_until else None,
@@ -172,8 +169,11 @@ class DrawdownMonitor:
             'pnl_today': self.pnl_today,
         }
     
-    def _check_limits(self) -> Dict:
+    def _check_limits(self) -> None:
         """Sprawdza wszystkie limity."""
+        if self.trading_blocked and self.block_until and datetime.now() < self.block_until:
+            return
+
         daily_dd = self._calc_daily_drawdown()
         total_dd = self._calc_total_drawdown()
         
@@ -195,8 +195,6 @@ class DrawdownMonitor:
             self._block_trading(
                 f"Consecutive losses limit: {self.consecutive_losses} >= {self.max_consecutive_losses}"
             )
-        
-        return self.get_status()
     
     def _calc_daily_drawdown(self) -> float:
         """Oblicza dzienny drawdown (od początku dnia)."""
@@ -213,12 +211,13 @@ class DrawdownMonitor:
     def _block_trading(self, reason: str, hours: int = None):
         """Blokuje trading."""
         hours = hours or self.cooldown_hours
+
+        if self.trading_blocked and self.block_until and datetime.now() < self.block_until:
+            return
         
         self.trading_blocked = True
         self.block_reason = reason
-        self.block_until = datetime.now().replace(
-            hour=datetime.now().hour + hours
-        )
+        self.block_until = datetime.now() + timedelta(hours=hours)
         
         logger.warning(f"🚫 TRADING BLOCKED: {reason}")
         logger.warning(f"   Block until: {self.block_until}")
@@ -230,6 +229,11 @@ class DrawdownMonitor:
         self.block_until = None
         
         logger.info("✅ Trading block cleared")
+
+    def _refresh_block_state(self):
+        """Czyści blokadę, jeśli okres cooldown już minął."""
+        if self.block_until and datetime.now() >= self.block_until:
+            self._clear_block()
     
     def _check_new_day(self):
         """Sprawdza czy nowy dzień i resetuje daily stats."""
